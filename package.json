@@ -1,0 +1,13 @@
+{
+  "name": "now-screening",
+  "private": true,
+  "description": "Connects Letterboxd with BookMyShow",
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "cd apps/api && go run main.go",
+    "db:up": "docker-compose up -d",
+    "db:down": "docker-compose down"
+  }
+}
