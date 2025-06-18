@@ -25,12 +25,13 @@ func main() {
 	}
 	defer db.Close(context.Background())
 
+	preloadMovies()
+
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 	r.Use(cors.Default())
 
 	r.GET("/movies", getMovies)
-	r.Run()
 
 	fmt.Println("Server starting on :8080...")
 
@@ -251,4 +252,38 @@ func fuzzySearchMovies(movies []Movie, query string) []Movie {
 	}
 
 	return result
+}
+
+func preloadMovies() {
+	cities := []string{"cuttack", "bhubaneswar"}
+
+	log.Println("Starting initial movie scraping for cities:", cities)
+
+	for _, city := range cities {
+		movies, err := getMoviesFromDB(city)
+		if err != nil {
+			log.Printf("Error checking cache for %s: %v", city, err)
+		}
+
+		if len(movies) > 0 {
+			log.Printf("Found %d cached movies for %s (within 24 hours), skipping scrape", len(movies), city)
+			continue
+		}
+
+		log.Printf("No valid cache for %s, scraping movies...", city)
+		movies, err = scrapeMovies(city)
+		if err != nil {
+			log.Printf("Failed to scrape movies for %s: %v", city, err)
+			continue
+		}
+
+		if err := saveMoviesToDB(city, movies); err != nil {
+			log.Printf("Failed to save movies for %s: %v", city, err)
+			continue
+		}
+
+		log.Printf("Successfully scraped and saved %d movies for %s", len(movies), city)
+	}
+
+	log.Println("Initial movie scraping completed")
 }
