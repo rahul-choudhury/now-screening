@@ -148,7 +148,7 @@ func scrapeMovies(city string) ([]Movie, error) {
 	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
-	url := fmt.Sprintf("https://in.bookmyshow.com/explore/home/%s", city)
+	url := fmt.Sprintf("https://in.bookmyshow.com/explore/movies-%s", city)
 	selector := fmt.Sprintf("a[href*=\"/movies/%s/\"]", city)
 
 	var links []map[string]string
