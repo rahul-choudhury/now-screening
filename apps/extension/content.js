@@ -1,5 +1,7 @@
 const CONFIG = {
   API_URL: "http://localhost:8080/movies",
+  STORAGE_KEY: "selectedCity",
+  DEFAULT_CITY: "cuttack",
   SELECTORS: {
     MOVIE_TITLE: "h1.primaryname span.name",
     WATCH_DIV: "watch",
@@ -46,14 +48,32 @@ async function main() {
 }
 
 /**
+ * Get selected city from storage
+ * @returns {Promise<string>} The selected city
+ */
+async function getSelectedCity() {
+  try {
+    const result = await chrome.storage.sync.get([CONFIG.STORAGE_KEY]);
+    return result[CONFIG.STORAGE_KEY] || CONFIG.DEFAULT_CITY;
+  } catch (error) {
+    console.error("Error getting selected city:", error);
+    return CONFIG.DEFAULT_CITY;
+  }
+}
+
+/**
  * Fetches movie data from the API
  * @param {string} movieTitle - The movie title to search for
  * @returns {Promise<Object>} API response data
  */
 async function fetchMovieData(movieTitle) {
-  const response = await fetch(
-    `${CONFIG.API_URL}?query=${encodeURIComponent(movieTitle)}`,
-  );
+  const selectedCity = await getSelectedCity();
+  const params = new URLSearchParams({
+    city: selectedCity,
+    query: movieTitle,
+  });
+
+  const response = await fetch(`${CONFIG.API_URL}?${params}`);
 
   if (!response.ok) {
     throw new Error(
@@ -185,6 +205,43 @@ function setupContentObserver(watchDiv, bookingLink) {
     childList: true,
     subtree: true,
   });
+}
+
+/**
+ * Handle messages from popup (city change notifications)
+ */
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === "CITY_CHANGED") {
+    console.log(`City changed to: ${message.city}`);
+    refreshBookingLink();
+  }
+});
+
+/**
+ * Refresh the booking link with current city selection
+ */
+async function refreshBookingLink() {
+  const movieTitle =
+    document.querySelector(CONFIG.SELECTORS.MOVIE_TITLE)?.innerHTML?.trim() ||
+    null;
+
+  if (!movieTitle) {
+    console.log("Movie title not found for refresh");
+    return;
+  }
+
+  try {
+    const movieData = await fetchMovieData(movieTitle);
+    const bookingLink = validateAndExtractLink(movieData);
+    if (bookingLink) {
+      const watchDiv = document.getElementById(CONFIG.SELECTORS.WATCH_DIV);
+      if (watchDiv) {
+        injectBookingLink(watchDiv, bookingLink);
+      }
+    }
+  } catch (error) {
+    console.error("Error refreshing booking link:", error);
+  }
 }
 
 window.addEventListener("beforeunload", () => {
