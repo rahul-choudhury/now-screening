@@ -9,5 +9,8 @@
     "dev": "cd apps/api && go run main.go",
     "db:up": "docker-compose up -d",
     "db:down": "docker-compose down"
+  },
+  "devDependencies": {
+    "chrome-types": "^0.1.354"
   }
 }
