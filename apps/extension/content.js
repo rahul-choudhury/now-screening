@@ -19,6 +19,10 @@ const CONFIG = {
       "https://cdn.brandfetch.io/id4J58sqa_/theme/dark/symbol.svg?c=1dxbfHSJFAPEGdCLU4o5B",
     TEXT: "BookMyShow",
   },
+  ANIMATIONS: {
+    FADE_DURATION: 200,
+    SKELETON_PULSE_DURATION: 1500,
+  },
 };
 
 let mutationObserver = null;
@@ -39,8 +43,10 @@ async function main() {
   try {
     const movieData = await fetchMovieData(movieTitle);
     const bookingLink = validateAndExtractLink(movieData);
-    if (bookingLink) {
+    if (bookingLink && bookingLink !== "NO_MOVIES") {
       waitForWatchDiv(bookingLink);
+    } else if (bookingLink === "NO_MOVIES") {
+      waitForWatchDiv("NO_MOVIES");
     }
   } catch (error) {
     console.error("Error in main flow:", error);
@@ -87,12 +93,17 @@ async function fetchMovieData(movieTitle) {
 /**
  * Validates API response and extracts booking link
  * @param {Object} data - API response data
- * @returns {string|null} Booking link or null if invalid
+ * @returns {string|null|'NO_MOVIES'} Booking link, null if invalid, or 'NO_MOVIES' if no movies found
  */
 function validateAndExtractLink(data) {
-  if (!data || !Array.isArray(data.movies) || data.movies.length === 0) {
+  if (
+    !data ||
+    !Array.isArray(data.movies) ||
+    data.movies.length === 0 ||
+    data.movies === null
+  ) {
     console.warn("No movies found in API response");
-    return null;
+    return "NO_MOVIES";
   }
 
   const firstMovie = data.movies[0];
@@ -105,11 +116,11 @@ function validateAndExtractLink(data) {
 }
 
 /**
- * Waits for the watch div to be ready and injects the booking link
- * @param {string} bookingLink - The booking URL to inject
+ * Waits for the watch div to be ready and injects the booking link or placeholder
+ * @param {string} bookingLink - The booking URL to inject or 'NO_MOVIES' for placeholder
  */
-function waitForWatchDiv(bookingLink) {
-  setTimeout(() => {
+async function waitForWatchDiv(bookingLink) {
+  setTimeout(async () => {
     const watchDiv = document.getElementById(CONFIG.SELECTORS.WATCH_DIV);
     if (!watchDiv) {
       setTimeout(() => waitForWatchDiv(bookingLink), CONFIG.TIMING.RETRY_DELAY);
@@ -127,7 +138,11 @@ function waitForWatchDiv(bookingLink) {
       return;
     }
 
-    injectBookingLink(watchDiv, bookingLink);
+    if (bookingLink === "NO_MOVIES") {
+      await injectNoMoviesPlaceholder(watchDiv);
+    } else {
+      injectBookingLink(watchDiv, bookingLink);
+    }
     setupContentObserver(watchDiv, bookingLink);
   }, CONFIG.TIMING.INITIAL_DELAY);
 }
@@ -136,13 +151,35 @@ function waitForWatchDiv(bookingLink) {
  * Creates and injects the BookMyShow link into the watch div
  * @param {Element} watchDiv - The watch container element
  * @param {string} bookingLink - The booking URL
+ * @param {boolean} animate - Whether to animate the transition
  */
-function injectBookingLink(watchDiv, bookingLink) {
+function injectBookingLink(watchDiv, bookingLink, animate = false) {
   const existingLink = watchDiv.querySelector(CONFIG.SELECTORS.BMS_LINK);
-  if (existingLink) {
-    existingLink.remove();
-  }
 
+  if (existingLink && animate) {
+    // Fade out existing link
+    existingLink.style.transition = `opacity ${CONFIG.ANIMATIONS.FADE_DURATION}ms ease-out`;
+    existingLink.style.opacity = "0";
+
+    setTimeout(() => {
+      existingLink.remove();
+      createAndInsertLink(watchDiv, bookingLink, animate);
+    }, CONFIG.ANIMATIONS.FADE_DURATION);
+  } else {
+    if (existingLink) {
+      existingLink.remove();
+    }
+    createAndInsertLink(watchDiv, bookingLink, animate);
+  }
+}
+
+/**
+ * Creates and inserts the actual link element
+ * @param {Element} watchDiv - The watch container element
+ * @param {string} bookingLink - The booking URL
+ * @param {boolean} animate - Whether to animate the insertion
+ */
+function createAndInsertLink(watchDiv, bookingLink, animate) {
   const bmsLink = document.createElement("a");
   bmsLink.href = bookingLink;
   bmsLink.target = "_blank";
@@ -151,7 +188,18 @@ function injectBookingLink(watchDiv, bookingLink) {
   applyLinkStyles(bmsLink);
   setLinkContent(bmsLink);
 
+  if (animate) {
+    bmsLink.style.opacity = "0";
+    bmsLink.style.transition = `opacity ${CONFIG.ANIMATIONS.FADE_DURATION}ms ease-in`;
+  }
+
   watchDiv.appendChild(bmsLink);
+
+  if (animate) {
+    requestAnimationFrame(() => {
+      bmsLink.style.opacity = "1";
+    });
+  }
 }
 
 /**
@@ -184,6 +232,121 @@ function setLinkContent(linkElement) {
 }
 
 /**
+ * Creates and injects a skeleton loading state
+ * @param {Element} watchDiv - The watch container element
+ */
+function injectSkeletonLoader(watchDiv) {
+  const existingLink = watchDiv.querySelector(CONFIG.SELECTORS.BMS_LINK);
+  if (existingLink) {
+    existingLink.remove();
+  }
+
+  const skeletonLink = document.createElement("div");
+  skeletonLink.className = "bms-link bms-skeleton";
+
+  applySkeletonStyles(skeletonLink);
+  setSkeletonContent(skeletonLink);
+
+  watchDiv.appendChild(skeletonLink);
+}
+
+/**
+ * Applies skeleton loading styles
+ * @param {Element} skeletonElement - The skeleton element
+ */
+function applySkeletonStyles(skeletonElement) {
+  skeletonElement.style.cssText = `
+    font-size: 12px;
+    padding: 12px 0px;
+    margin-left: 10px;
+    border-top: 1px solid #202830;
+    display: flex;
+    align-items: center;
+    opacity: 0.6;
+  `;
+}
+
+/**
+ * Sets skeleton content with pulsing animation
+ * @param {Element} skeletonElement - The skeleton element
+ */
+function setSkeletonContent(skeletonElement) {
+  skeletonElement.innerHTML = `
+    <div style="
+      width: 23px; 
+      height: 23px; 
+      margin-right: 7px; 
+      background: linear-gradient(90deg, #2c3440 25%, #3c4450 50%, #2c3440 75%);
+      background-size: 200% 100%;
+      animation: skeleton-pulse ${CONFIG.ANIMATIONS.SKELETON_PULSE_DURATION}ms ease-in-out infinite;
+      border-radius: 3px;
+    "></div>
+    <div style="
+      width: 80px;
+      height: 12px;
+      background: linear-gradient(90deg, #2c3440 25%, #3c4450 50%, #2c3440 75%);
+      background-size: 200% 100%;
+      animation: skeleton-pulse ${CONFIG.ANIMATIONS.SKELETON_PULSE_DURATION}ms ease-in-out infinite;
+      border-radius: 2px;
+    "></div>
+    <style>
+      @keyframes skeleton-pulse {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+    </style>
+  `;
+}
+
+/**
+ * Creates and injects a "no movies found" placeholder
+ * @param {Element} watchDiv - The watch container element
+ * @param {string} city - The current city
+ */
+async function injectNoMoviesPlaceholder(watchDiv, city = null) {
+  const existingLink = watchDiv.querySelector(CONFIG.SELECTORS.BMS_LINK);
+  if (existingLink) {
+    existingLink.remove();
+  }
+
+  if (!city) {
+    city = await getSelectedCity();
+  }
+
+  const placeholderDiv = document.createElement("div");
+  placeholderDiv.className = "bms-link bms-no-movies";
+
+  placeholderDiv.style.cssText = `
+    font-size: 12px;
+    padding: 12px 0px;
+    margin-left: 10px;
+    border-top: 1px solid #202830;
+    display: flex;
+    align-items: center;
+    color: #9ab;
+    opacity: 0.7;
+  `;
+
+  placeholderDiv.innerHTML = `
+    <div style="
+      width: 23px; 
+      height: 23px; 
+      margin-right: 7px; 
+      background: #404040;
+      border-radius: 3px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: #666;
+    ">?</div>
+    Not screening in ${city}
+  `;
+
+  watchDiv.appendChild(placeholderDiv);
+}
+
+/**
  * Sets up observer to re-inject link when content changes
  * @param {Element} watchDiv - The watch container element
  * @param {string} bookingLink - The booking URL
@@ -196,7 +359,11 @@ function setupContentObserver(watchDiv, bookingLink) {
   mutationObserver = new MutationObserver(() => {
     setTimeout(() => {
       if (!watchDiv.querySelector(CONFIG.SELECTORS.BMS_LINK)) {
-        injectBookingLink(watchDiv, bookingLink);
+        if (bookingLink === "NO_MOVIES") {
+          injectNoMoviesPlaceholder(watchDiv);
+        } else {
+          injectBookingLink(watchDiv, bookingLink);
+        }
       }
     }, CONFIG.TIMING.OBSERVER_DEBOUNCE);
   });
@@ -212,7 +379,6 @@ function setupContentObserver(watchDiv, bookingLink) {
  */
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "CITY_CHANGED") {
-    console.log(`City changed to: ${message.city}`);
     refreshBookingLink();
   }
 });
@@ -230,17 +396,44 @@ async function refreshBookingLink() {
     return;
   }
 
+  const watchDiv = document.getElementById(CONFIG.SELECTORS.WATCH_DIV);
+  if (!watchDiv) {
+    console.log("Watch div not found for refresh");
+    return;
+  }
+
+  injectSkeletonLoader(watchDiv);
+
   try {
     const movieData = await fetchMovieData(movieTitle);
     const bookingLink = validateAndExtractLink(movieData);
-    if (bookingLink) {
-      const watchDiv = document.getElementById(CONFIG.SELECTORS.WATCH_DIV);
-      if (watchDiv) {
-        injectBookingLink(watchDiv, bookingLink);
+
+    if (bookingLink && bookingLink !== "NO_MOVIES") {
+      injectBookingLink(watchDiv, bookingLink, true);
+    } else if (bookingLink === "NO_MOVIES") {
+      const skeleton = watchDiv.querySelector(".bms-skeleton");
+      if (skeleton) {
+        skeleton.style.transition = `opacity ${CONFIG.ANIMATIONS.FADE_DURATION}ms ease-out`;
+        skeleton.style.opacity = "0";
+        setTimeout(async () => {
+          skeleton.remove();
+          await injectNoMoviesPlaceholder(watchDiv);
+        }, CONFIG.ANIMATIONS.FADE_DURATION);
+      } else {
+        await injectNoMoviesPlaceholder(watchDiv);
+      }
+    } else {
+      const skeleton = watchDiv.querySelector(".bms-skeleton");
+      if (skeleton) {
+        skeleton.remove();
       }
     }
   } catch (error) {
     console.error("Error refreshing booking link:", error);
+    const skeleton = watchDiv.querySelector(".bms-skeleton");
+    if (skeleton) {
+      skeleton.remove();
+    }
   }
 }
 
