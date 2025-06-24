@@ -1,6 +1,6 @@
 {
   "name": "Now Screening",
-  "description": "Test",
+  "description": "Connects Letterboxd with BookMyShow",
   "version": "0.1",
   "manifest_version": 3,
   "action": {
