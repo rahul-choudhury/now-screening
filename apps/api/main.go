@@ -13,17 +13,17 @@ import (
 	"github.com/chromedp/chromedp"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sahilm/fuzzy"
 )
 
-var db *pgx.Conn
+var db *pgxpool.Pool
 
 func main() {
 	if err := connectDB(); err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}
-	defer db.Close(context.Background())
+	defer db.Close()
 
 	preloadMovies()
 
@@ -49,7 +49,7 @@ func connectDB() error {
 	connStr := fmt.Sprintf("postgres://%s:%s@%s:%s", dbUser, dbPassword, dbHost, dbPort)
 
 	var err error
-	db, err = pgx.Connect(context.Background(), connStr)
+	db, err = pgxpool.New(context.Background(), connStr)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ type Movie struct {
 
 func getMoviesFromDB(city string) ([]Movie, error) {
 	query := `
-		SELECT title, href FROM movies 
+		SELECT title, href FROM movies
 		WHERE city = $1 AND scraped_at > NOW() - INTERVAL '24 hours'
 		ORDER BY scraped_at DESC
 	`
@@ -159,14 +159,14 @@ func scrapeMovies(city string) ([]Movie, error) {
 		chromedp.Evaluate(fmt.Sprintf(`
 			Array.from(document.querySelectorAll('%s')).map(link => {
 				const h3Element = link.querySelector('h3');
-				
+
 				let title = '';
 				if (h3Element) {
 					title = h3Element.textContent.trim();
 				} else {
 					title = link.textContent.trim();
 				}
-				
+
 				return {
 					text: title,
 					href: link.href
