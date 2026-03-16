@@ -25,13 +25,13 @@ func main() {
 	}
 	defer db.Close()
 
-	preloadMovies()
-
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 	r.Use(cors.Default())
 
 	r.GET("/movies", getMovies)
+
+	go preloadMovies()
 
 	fmt.Println("Server starting on :8080...")
 
