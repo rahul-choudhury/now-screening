@@ -161,6 +161,23 @@ func TestMovieServiceLoadReturnsScrapeError(t *testing.T) {
 	}
 }
 
+func TestMovieServiceLoadRejectsEmptyScrape(t *testing.T) {
+	t.Parallel()
+
+	repo := &fakeRepository{}
+	scraper := &fakeScraper{}
+	service := NewMovieService(repo, scraper, 24*time.Hour, testLogger())
+
+	_, _, err := service.Load(context.Background(), "cuttack")
+	if !errors.Is(err, errEmptyScrape) {
+		t.Fatalf("Load() error = %v, want errEmptyScrape", err)
+	}
+
+	if repo.replaceCalls != 0 {
+		t.Fatalf("ReplaceCity() calls = %d, want 0", repo.replaceCalls)
+	}
+}
+
 func TestMovieServiceLoadReturnsMoviesWhenSaveFails(t *testing.T) {
 	t.Parallel()
 

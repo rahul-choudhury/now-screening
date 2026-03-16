@@ -15,6 +15,8 @@ type movieService struct {
 	logger   *log.Logger
 }
 
+var errEmptyScrape = errors.New("scrape returned no movies")
+
 func NewMovieService(repo Repository, scraper Scraper, cacheTTL time.Duration, logger *log.Logger) Service {
 	return &movieService{
 		repo:     repo,
@@ -46,6 +48,10 @@ func (s *movieService) Load(ctx context.Context, city string) ([]Movie, bool, er
 	scrapedMovies, err := s.scraper.Scrape(ctx, city)
 	if err != nil {
 		return nil, false, fmt.Errorf("scrape movies: %w", err)
+	}
+
+	if len(scrapedMovies) == 0 {
+		return nil, false, fmt.Errorf("scrape movies: %w", errEmptyScrape)
 	}
 
 	if err := s.repo.ReplaceCity(ctx, city, scrapedMovies, time.Now()); err != nil {
