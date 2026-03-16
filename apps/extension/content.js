@@ -13,6 +13,7 @@ const CONFIG = {
     RETRY_DELAY: 100,
     READINESS_CHECK_DELAY: 500,
     OBSERVER_DEBOUNCE: 100,
+    MAX_WAIT_ATTEMPTS: 40,
   },
   BMS: {
     ICON_URL:
@@ -27,6 +28,7 @@ const CONFIG = {
 
 let mutationObserver = null;
 let currentBookingState = null;
+let watchDivTimeoutId = null;
 
 /**
  * Main entry point - extracts movie title and initiates the flow
@@ -45,7 +47,7 @@ async function main() {
     const movieData = await fetchMovieData(movieTitle);
     currentBookingState = validateAndExtractLink(movieData);
     if (currentBookingState) {
-      waitForWatchDiv();
+      scheduleWatchDivCheck();
     }
   } catch (error) {
     console.error("Error in main flow:", error);
@@ -117,32 +119,47 @@ function validateAndExtractLink(data) {
 /**
  * Waits for the watch div to be ready and injects the booking link or placeholder
  */
-async function waitForWatchDiv() {
-  setTimeout(async () => {
-    const watchDiv = document.getElementById(CONFIG.SELECTORS.WATCH_DIV);
-    if (!watchDiv) {
-      setTimeout(() => waitForWatchDiv(), CONFIG.TIMING.RETRY_DELAY);
-      return;
-    }
+function scheduleWatchDivCheck(
+  attempt = 0,
+  delay = CONFIG.TIMING.INITIAL_DELAY,
+) {
+  if (watchDivTimeoutId) {
+    clearTimeout(watchDivTimeoutId);
+  }
 
-    const justWatchElement = watchDiv.querySelector(
-      CONFIG.SELECTORS.JUSTWATCH_BRANDING,
-    );
-    if (!justWatchElement) {
-      setTimeout(
-        () => waitForWatchDiv(),
-        CONFIG.TIMING.READINESS_CHECK_DELAY,
-      );
-      return;
-    }
+  watchDivTimeoutId = setTimeout(() => {
+    watchDivTimeoutId = null;
+    waitForWatchDiv(attempt);
+  }, delay);
+}
 
-    if (currentBookingState === "NO_MOVIES") {
-      await injectNoMoviesPlaceholder(watchDiv);
-    } else if (currentBookingState) {
-      injectBookingLink(watchDiv, currentBookingState);
-    }
-    setupContentObserver(watchDiv);
-  }, CONFIG.TIMING.INITIAL_DELAY);
+async function waitForWatchDiv(attempt = 0) {
+  if (attempt >= CONFIG.TIMING.MAX_WAIT_ATTEMPTS) {
+    console.warn("Watch section was not ready after maximum retries");
+    return;
+  }
+
+  const watchDiv = document.getElementById(CONFIG.SELECTORS.WATCH_DIV);
+  if (!watchDiv) {
+    scheduleWatchDivCheck(attempt + 1, CONFIG.TIMING.RETRY_DELAY);
+    return;
+  }
+
+  const justWatchElement = watchDiv.querySelector(
+    CONFIG.SELECTORS.JUSTWATCH_BRANDING,
+  );
+  if (!justWatchElement) {
+    scheduleWatchDivCheck(attempt + 1, CONFIG.TIMING.READINESS_CHECK_DELAY);
+    return;
+  }
+
+  if (currentBookingState === "NO_MOVIES") {
+    await injectNoMoviesPlaceholder(watchDiv);
+  } else if (currentBookingState) {
+    injectBookingLink(watchDiv, currentBookingState);
+  }
+
+  setupContentObserver(watchDiv);
 }
 
 /**
@@ -399,6 +416,11 @@ async function refreshBookingLink() {
     return;
   }
 
+  if (watchDivTimeoutId) {
+    clearTimeout(watchDivTimeoutId);
+    watchDivTimeoutId = null;
+  }
+
   currentBookingState = null;
   setupContentObserver(watchDiv);
   injectSkeletonLoader(watchDiv);
@@ -440,6 +462,9 @@ async function refreshBookingLink() {
 }
 
 window.addEventListener("beforeunload", () => {
+  if (watchDivTimeoutId) {
+    clearTimeout(watchDivTimeoutId);
+  }
   if (mutationObserver) {
     mutationObserver.disconnect();
   }
