@@ -58,7 +58,31 @@ func connectDB() error {
 		return err
 	}
 
+	if err = ensureSchema(context.Background()); err != nil {
+		return err
+	}
+
 	log.Println("Connected to database...")
+	return nil
+}
+
+func ensureSchema(ctx context.Context) error {
+	queries := []string{
+		`
+			CREATE TABLE IF NOT EXISTS city_scrapes (
+				city VARCHAR(100) PRIMARY KEY,
+				scraped_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+			)
+		`,
+		`CREATE INDEX IF NOT EXISTS idx_city_scrapes_scraped_at ON city_scrapes(scraped_at)`,
+	}
+
+	for _, query := range queries {
+		if _, err := db.Exec(ctx, query); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -83,7 +107,7 @@ type Movie struct {
 	Href  string `json:"href"`
 }
 
-func getMoviesFromDB(city string) ([]Movie, error) {
+func getMoviesFromDB(city string) ([]Movie, bool, error) {
 	query := `
 		SELECT title, href FROM movies
 		WHERE city = $1 AND scraped_at > NOW() - INTERVAL '24 hours'
@@ -92,7 +116,7 @@ func getMoviesFromDB(city string) ([]Movie, error) {
 
 	rows, err := db.Query(context.Background(), query, city)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer rows.Close()
 
@@ -100,12 +124,37 @@ func getMoviesFromDB(city string) ([]Movie, error) {
 	for rows.Next() {
 		var movie Movie
 		if err := rows.Scan(&movie.Title, &movie.Href); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		movies = append(movies, movie)
 	}
 
-	return movies, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+
+	cacheValid, err := hasFreshScrape(city)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return movies, cacheValid, nil
+}
+
+func hasFreshScrape(city string) (bool, error) {
+	query := `
+		SELECT EXISTS (
+			SELECT 1 FROM city_scrapes
+			WHERE city = $1 AND scraped_at > NOW() - INTERVAL '24 hours'
+		)
+	`
+
+	var exists bool
+	if err := db.QueryRow(context.Background(), query, city).Scan(&exists); err != nil {
+		return false, err
+	}
+
+	return exists, nil
 }
 
 func saveMoviesToDB(city string, movies []Movie) error {
@@ -125,6 +174,15 @@ func saveMoviesToDB(city string, movies []Movie) error {
 		if _, err := tx.Exec(context.Background(), insertQuery, city, movie.Title, movie.Href); err != nil {
 			return err
 		}
+	}
+
+	cacheQuery := `
+		INSERT INTO city_scrapes (city, scraped_at)
+		VALUES ($1, NOW())
+		ON CONFLICT (city) DO UPDATE SET scraped_at = EXCLUDED.scraped_at
+	`
+	if _, err := tx.Exec(context.Background(), cacheQuery, city); err != nil {
+		return err
 	}
 
 	return tx.Commit(context.Background())
@@ -197,12 +255,10 @@ func getMovies(c *gin.Context) {
 	city := c.DefaultQuery("city", "cuttack")
 	query := c.Query("query")
 
-	movies, err := getMoviesFromDB(city)
+	movies, fromCache, err := getMoviesFromDB(city)
 	if err != nil {
 		log.Printf("Error querying database: %v", err)
 	}
-
-	fromCache := len(movies) > 0
 
 	if !fromCache {
 		log.Printf("No cached data for %s, scraping...", city)
@@ -260,12 +316,12 @@ func preloadMovies() {
 	log.Println("Starting initial movie scraping for cities:", cities)
 
 	for _, city := range cities {
-		movies, err := getMoviesFromDB(city)
+		movies, fromCache, err := getMoviesFromDB(city)
 		if err != nil {
 			log.Printf("Error checking cache for %s: %v", city, err)
 		}
 
-		if len(movies) > 0 {
+		if fromCache {
 			log.Printf("Found %d cached movies for %s (within 24 hours), skipping scrape", len(movies), city)
 			continue
 		}
