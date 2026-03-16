@@ -53,8 +53,8 @@ func run(logger *log.Logger) error {
 		Handler: web.Chain(
 			mux,
 			web.CORSMiddleware(),
-			web.RecoverMiddleware(logger),
 			web.LoggingMiddleware(logger),
+			web.RecoverMiddleware(logger),
 		),
 	}
 
