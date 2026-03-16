@@ -42,6 +42,13 @@ npm install
 npm run db:up
 ```
 
+If you previously started the database with a newer `postgres:latest` image and
+now hit a data directory compatibility error, recreate the local database volume:
+```bash
+docker-compose down -v
+npm run db:up
+```
+
 4. Start the API server:
 ```bash
 npm run dev
