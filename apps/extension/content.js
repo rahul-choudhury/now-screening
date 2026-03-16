@@ -26,6 +26,7 @@ const CONFIG = {
 };
 
 let mutationObserver = null;
+let currentBookingState = null;
 
 /**
  * Main entry point - extracts movie title and initiates the flow
@@ -42,11 +43,9 @@ async function main() {
 
   try {
     const movieData = await fetchMovieData(movieTitle);
-    const bookingLink = validateAndExtractLink(movieData);
-    if (bookingLink && bookingLink !== "NO_MOVIES") {
-      waitForWatchDiv(bookingLink);
-    } else if (bookingLink === "NO_MOVIES") {
-      waitForWatchDiv("NO_MOVIES");
+    currentBookingState = validateAndExtractLink(movieData);
+    if (currentBookingState) {
+      waitForWatchDiv();
     }
   } catch (error) {
     console.error("Error in main flow:", error);
@@ -117,13 +116,12 @@ function validateAndExtractLink(data) {
 
 /**
  * Waits for the watch div to be ready and injects the booking link or placeholder
- * @param {string} bookingLink - The booking URL to inject or 'NO_MOVIES' for placeholder
  */
-async function waitForWatchDiv(bookingLink) {
+async function waitForWatchDiv() {
   setTimeout(async () => {
     const watchDiv = document.getElementById(CONFIG.SELECTORS.WATCH_DIV);
     if (!watchDiv) {
-      setTimeout(() => waitForWatchDiv(bookingLink), CONFIG.TIMING.RETRY_DELAY);
+      setTimeout(() => waitForWatchDiv(), CONFIG.TIMING.RETRY_DELAY);
       return;
     }
 
@@ -132,18 +130,18 @@ async function waitForWatchDiv(bookingLink) {
     );
     if (!justWatchElement) {
       setTimeout(
-        () => waitForWatchDiv(bookingLink),
+        () => waitForWatchDiv(),
         CONFIG.TIMING.READINESS_CHECK_DELAY,
       );
       return;
     }
 
-    if (bookingLink === "NO_MOVIES") {
+    if (currentBookingState === "NO_MOVIES") {
       await injectNoMoviesPlaceholder(watchDiv);
-    } else {
-      injectBookingLink(watchDiv, bookingLink);
+    } else if (currentBookingState) {
+      injectBookingLink(watchDiv, currentBookingState);
     }
-    setupContentObserver(watchDiv, bookingLink);
+    setupContentObserver(watchDiv);
   }, CONFIG.TIMING.INITIAL_DELAY);
 }
 
@@ -349,9 +347,8 @@ async function injectNoMoviesPlaceholder(watchDiv, city = null) {
 /**
  * Sets up observer to re-inject link when content changes
  * @param {Element} watchDiv - The watch container element
- * @param {string} bookingLink - The booking URL
  */
-function setupContentObserver(watchDiv, bookingLink) {
+function setupContentObserver(watchDiv) {
   if (mutationObserver) {
     mutationObserver.disconnect();
   }
@@ -359,10 +356,10 @@ function setupContentObserver(watchDiv, bookingLink) {
   mutationObserver = new MutationObserver(() => {
     setTimeout(() => {
       if (!watchDiv.querySelector(CONFIG.SELECTORS.BMS_LINK)) {
-        if (bookingLink === "NO_MOVIES") {
+        if (currentBookingState === "NO_MOVIES") {
           injectNoMoviesPlaceholder(watchDiv);
-        } else {
-          injectBookingLink(watchDiv, bookingLink);
+        } else if (currentBookingState) {
+          injectBookingLink(watchDiv, currentBookingState);
         }
       }
     }, CONFIG.TIMING.OBSERVER_DEBOUNCE);
@@ -402,11 +399,14 @@ async function refreshBookingLink() {
     return;
   }
 
+  currentBookingState = null;
+  setupContentObserver(watchDiv);
   injectSkeletonLoader(watchDiv);
 
   try {
     const movieData = await fetchMovieData(movieTitle);
     const bookingLink = validateAndExtractLink(movieData);
+    currentBookingState = bookingLink;
 
     if (bookingLink && bookingLink !== "NO_MOVIES") {
       injectBookingLink(watchDiv, bookingLink, true);
@@ -428,6 +428,8 @@ async function refreshBookingLink() {
         skeleton.remove();
       }
     }
+
+    setupContentObserver(watchDiv);
   } catch (error) {
     console.error("Error refreshing booking link:", error);
     const skeleton = watchDiv.querySelector(".bms-skeleton");
