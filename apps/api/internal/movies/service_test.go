@@ -5,11 +5,14 @@ import (
 	"errors"
 	"io"
 	"log"
+	"sync"
 	"testing"
 	"time"
 )
 
 type fakeRepository struct {
+	mu sync.Mutex
+
 	listFreshMovies []Movie
 	listFreshErr    error
 	hasFresh        bool
@@ -23,6 +26,9 @@ type fakeRepository struct {
 }
 
 func (f *fakeRepository) ListFresh(_ context.Context, _ string, _ time.Time) ([]Movie, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if f.listFreshErr != nil {
 		return nil, f.listFreshErr
 	}
@@ -31,6 +37,9 @@ func (f *fakeRepository) ListFresh(_ context.Context, _ string, _ time.Time) ([]
 }
 
 func (f *fakeRepository) HasFreshScrape(_ context.Context, _ string, _ time.Time) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if f.hasFreshErr != nil {
 		return false, f.hasFreshErr
 	}
@@ -39,30 +48,62 @@ func (f *fakeRepository) HasFreshScrape(_ context.Context, _ string, _ time.Time
 }
 
 func (f *fakeRepository) ReplaceCity(_ context.Context, city string, list []Movie, scrapedAt time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.replaceCalls++
 	f.replacedCity = city
 	f.replacedAt = scrapedAt
 	f.replacedWith = append([]Movie(nil), list...)
 
+	if f.replaceErr != nil {
+		return f.replaceErr
+	}
+
+	f.listFreshMovies = append([]Movie(nil), list...)
+	f.hasFresh = true
+
 	return f.replaceErr
 }
 
 type fakeScraper struct {
+	mu sync.Mutex
+
 	movies []Movie
 	err    error
 	calls  int
 	city   string
+
+	started chan struct{}
+	release <-chan struct{}
 }
 
 func (f *fakeScraper) Scrape(_ context.Context, city string) ([]Movie, error) {
+	f.mu.Lock()
 	f.calls++
 	f.city = city
+	movies := append([]Movie(nil), f.movies...)
+	err := f.err
+	started := f.started
+	release := f.release
+	f.mu.Unlock()
 
-	if f.err != nil {
-		return nil, f.err
+	if started != nil {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
 	}
 
-	return append([]Movie(nil), f.movies...), nil
+	if release != nil {
+		<-release
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return movies, nil
 }
 
 func testLogger() *log.Logger {
@@ -175,6 +216,68 @@ func TestMovieServiceLoadRejectsEmptyScrape(t *testing.T) {
 
 	if repo.replaceCalls != 0 {
 		t.Fatalf("ReplaceCity() calls = %d, want 0", repo.replaceCalls)
+	}
+}
+
+func TestMovieServiceLoadCoalescesConcurrentScrapes(t *testing.T) {
+	t.Parallel()
+
+	repo := &fakeRepository{}
+	release := make(chan struct{})
+	scraper := &fakeScraper{
+		movies:  []Movie{{Title: "Fresh", Href: "/fresh"}},
+		started: make(chan struct{}, 1),
+		release: release,
+	}
+	service := NewMovieService(repo, scraper, 24*time.Hour, testLogger())
+
+	type result struct {
+		movies    []Movie
+		fromCache bool
+		err       error
+	}
+
+	results := make(chan result, 2)
+
+	go func() {
+		movies, fromCache, err := service.Load(context.Background(), "cuttack")
+		results <- result{movies: movies, fromCache: fromCache, err: err}
+	}()
+
+	<-scraper.started
+
+	go func() {
+		movies, fromCache, err := service.Load(context.Background(), "cuttack")
+		results <- result{movies: movies, fromCache: fromCache, err: err}
+	}()
+
+	close(release)
+
+	first := <-results
+	second := <-results
+
+	if first.err != nil {
+		t.Fatalf("first Load() error = %v", first.err)
+	}
+
+	if second.err != nil {
+		t.Fatalf("second Load() error = %v", second.err)
+	}
+
+	if scraper.calls != 1 {
+		t.Fatalf("Scrape() calls = %d, want 1", scraper.calls)
+	}
+
+	if repo.replaceCalls != 1 {
+		t.Fatalf("ReplaceCity() calls = %d, want 1", repo.replaceCalls)
+	}
+
+	if len(first.movies) != 1 || first.movies[0].Title != "Fresh" {
+		t.Fatalf("first Load() movies = %+v, want scraped movie", first.movies)
+	}
+
+	if len(second.movies) != 1 || second.movies[0].Title != "Fresh" {
+		t.Fatalf("second Load() movies = %+v, want scraped movie", second.movies)
 	}
 }
 

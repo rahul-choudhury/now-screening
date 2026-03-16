@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -13,6 +14,8 @@ type movieService struct {
 	scraper  Scraper
 	cacheTTL time.Duration
 	logger   *log.Logger
+
+	scrapeLocks sync.Map
 }
 
 var errEmptyScrape = errors.New("scrape returned no movies")
@@ -27,16 +30,22 @@ func NewMovieService(repo Repository, scraper Scraper, cacheTTL time.Duration, l
 }
 
 func (s *movieService) Load(ctx context.Context, city string) ([]Movie, bool, error) {
-	since := time.Now().Add(-s.cacheTTL)
-
-	cachedMovies, err := s.repo.ListFresh(ctx, city, since)
+	cachedMovies, cacheValid, err := s.loadFreshCache(ctx, city)
 	if err != nil {
-		return nil, false, fmt.Errorf("query cached movies: %w", err)
+		return nil, false, err
 	}
 
-	cacheValid, err := s.repo.HasFreshScrape(ctx, city, since)
+	if cacheValid {
+		return cachedMovies, true, nil
+	}
+
+	lock := s.cityLock(city)
+	lock.Lock()
+	defer lock.Unlock()
+
+	cachedMovies, cacheValid, err = s.loadFreshCache(ctx, city)
 	if err != nil {
-		return nil, false, fmt.Errorf("query cached movies: %w", err)
+		return nil, false, err
 	}
 
 	if cacheValid {
@@ -61,6 +70,27 @@ func (s *movieService) Load(ctx context.Context, city string) ([]Movie, bool, er
 	}
 
 	return scrapedMovies, false, nil
+}
+
+func (s *movieService) loadFreshCache(ctx context.Context, city string) ([]Movie, bool, error) {
+	since := time.Now().Add(-s.cacheTTL)
+
+	cachedMovies, err := s.repo.ListFresh(ctx, city, since)
+	if err != nil {
+		return nil, false, fmt.Errorf("query cached movies: %w", err)
+	}
+
+	cacheValid, err := s.repo.HasFreshScrape(ctx, city, since)
+	if err != nil {
+		return nil, false, fmt.Errorf("query cached movies: %w", err)
+	}
+
+	return cachedMovies, cacheValid, nil
+}
+
+func (s *movieService) cityLock(city string) *sync.Mutex {
+	lock, _ := s.scrapeLocks.LoadOrStore(city, &sync.Mutex{})
+	return lock.(*sync.Mutex)
 }
 
 func (s *movieService) Preload(ctx context.Context, cities []string) error {
