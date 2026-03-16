@@ -6,7 +6,7 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "cd apps/api && go run main.go",
+    "dev": "cd apps/api && go run ./cmd/api",
     "db:up": "docker-compose up -d",
     "db:down": "docker-compose down"
   },

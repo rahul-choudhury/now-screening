@@ -118,7 +118,8 @@ curl "http://localhost:8080/movies?city=bhubaneswar&query=Ballerina"
 now-screening/
 ├── apps/
 │   ├── api/           # Go backend server
-│   │   ├── main.go    # Main server file
+│   │   ├── cmd/api/   # Stdlib HTTP entrypoint
+│   │   ├── internal/  # Config, movies, web, postgres, scraper packages
 │   │   └── init.sql   # Database schema
 │   └── extension/     # Chrome extension
 │       ├── manifest.json
@@ -138,7 +139,7 @@ npm run db:up        # Start database
 npm run db:down      # Stop database
 
 # Manual commands
-cd apps/api && go run main.go    # Run API directly
+cd apps/api && go run ./cmd/api  # Run API directly
 cd apps/api && go mod tidy       # Clean Go dependencies
 ```
 
