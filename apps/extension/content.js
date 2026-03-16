@@ -73,10 +73,10 @@ async function getSelectedCity() {
  * @param {string} movieTitle - The movie title to search for
  * @returns {Promise<Object>} API response data
  */
-async function fetchMovieData(movieTitle) {
-  const selectedCity = await getSelectedCity();
+async function fetchMovieData(movieTitle, selectedCity = null) {
+  const city = selectedCity || (await getSelectedCity());
   const params = new URLSearchParams({
-    city: selectedCity,
+    city: city,
     query: movieTitle,
   });
 
@@ -375,14 +375,14 @@ function setupContentObserver(watchDiv) {
  */
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "CITY_CHANGED") {
-    refreshBookingLink();
+    refreshBookingLink(message.city);
   }
 });
 
 /**
  * Refresh the booking link with current city selection
  */
-async function refreshBookingLink() {
+async function refreshBookingLink(selectedCity = null) {
   const movieTitle =
     document.querySelector(CONFIG.SELECTORS.MOVIE_TITLE)?.innerHTML?.trim() ||
     null;
@@ -408,7 +408,7 @@ async function refreshBookingLink() {
   injectSkeletonLoader(watchDiv);
 
   try {
-    const movieData = await fetchMovieData(movieTitle);
+    const movieData = await fetchMovieData(movieTitle, selectedCity);
     const bookingLink = validateAndExtractLink(movieData);
     currentBookingState = bookingLink;
 
