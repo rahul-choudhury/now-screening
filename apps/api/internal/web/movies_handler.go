@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -8,22 +9,26 @@ import (
 	"go-scraping/internal/movies"
 )
 
+type movieLoader interface {
+	Load(ctx context.Context, city string) ([]movies.Movie, bool, error)
+}
+
 type MoviesHandler struct {
-	service     movies.Service
+	loader      movieLoader
 	defaultCity string
 	logger      *log.Logger
 }
 
-func RegisterMovieRoutes(mux *http.ServeMux, service movies.Service, defaultCity string, logger *log.Logger) {
+func RegisterMovieRoutes(mux *http.ServeMux, loader movieLoader, defaultCity string, logger *log.Logger) {
 	handler := &MoviesHandler{
-		service:     service,
+		loader:      loader,
 		defaultCity: defaultCity,
 		logger:      logger,
 	}
 
 	mux.Handle("GET /movies", http.HandlerFunc(handler.GetMovies))
 	mux.Handle("OPTIONS /movies", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		WriteNoContent(w, http.StatusNoContent)
+		w.WriteHeader(http.StatusNoContent)
 	}))
 }
 
@@ -35,7 +40,7 @@ func (h *MoviesHandler) GetMovies(w http.ResponseWriter, r *http.Request) {
 
 	query := r.URL.Query().Get("query")
 
-	loadedMovies, fromCache, err := h.service.Load(r.Context(), city)
+	loadedMovies, fromCache, err := h.loader.Load(r.Context(), city)
 	if err != nil {
 		h.logger.Printf("Error loading movies for %s: %v", city, err)
 		WriteError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to load movies: %v", err))

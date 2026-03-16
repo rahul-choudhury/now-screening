@@ -32,11 +32,7 @@ func (f *fakeMoviesService) Load(_ context.Context, city string) ([]movies.Movie
 	return append([]movies.Movie(nil), f.loadMovies...), f.fromCache, nil
 }
 
-func (f *fakeMoviesService) Preload(context.Context, []string) error {
-	return nil
-}
-
-func testHandler(t *testing.T, service movies.Service) http.Handler {
+func testHandler(t *testing.T, service movieLoader) http.Handler {
 	t.Helper()
 
 	mux := http.NewServeMux()

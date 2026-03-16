@@ -17,7 +17,3 @@ func WriteJSON(w http.ResponseWriter, status int, payload any) {
 func WriteError(w http.ResponseWriter, status int, message string) {
 	WriteJSON(w, status, map[string]string{"error": message})
 }
-
-func WriteNoContent(w http.ResponseWriter, status int) {
-	w.WriteHeader(status)
-}
