@@ -76,7 +76,7 @@ async function getSelectedCity() {
 async function fetchMovieData(movieTitle, selectedCity = null) {
   const city = selectedCity || (await getSelectedCity());
   const params = new URLSearchParams({
-    city: city,
+    city,
     query: movieTitle,
   });
 
@@ -88,7 +88,7 @@ async function fetchMovieData(movieTitle, selectedCity = null) {
     );
   }
 
-  return await response.json();
+  return response.json();
 }
 
 /**
@@ -100,8 +100,7 @@ function validateAndExtractLink(data) {
   if (
     !data ||
     !Array.isArray(data.movies) ||
-    data.movies.length === 0 ||
-    data.movies === null
+    data.movies.length === 0
   ) {
     console.warn("No movies found in API response");
     return "NO_MOVIES";
