@@ -189,6 +189,17 @@ function injectBookingLink(watchDiv, bookingLink, animate = false) {
 }
 
 /**
+ * Removes an existing injected BookMyShow element from the watch section
+ * @param {Element} watchDiv - The watch container element
+ */
+function removeExistingBmsElement(watchDiv) {
+  const existingElement = watchDiv.querySelector(CONFIG.SELECTORS.BMS_LINK);
+  if (existingElement) {
+    existingElement.remove();
+  }
+}
+
+/**
  * Creates and inserts the actual link element
  * @param {Element} watchDiv - The watch container element
  * @param {string} bookingLink - The booking URL
@@ -200,7 +211,7 @@ function createAndInsertLink(watchDiv, bookingLink, animate) {
   bmsLink.target = "_blank";
   bmsLink.className = "bms-link";
 
-  applyLinkStyles(bmsLink);
+  applyBaseContainerStyles(bmsLink);
   setLinkContent(bmsLink);
 
   if (animate) {
@@ -218,17 +229,19 @@ function createAndInsertLink(watchDiv, bookingLink, animate) {
 }
 
 /**
- * Applies styling to the BookMyShow link
- * @param {Element} linkElement - The link element to style
+ * Applies shared container styling for injected BookMyShow UI
+ * @param {Element} element - The element to style
+ * @param {string} extraStyles - Additional styles appended to the base block
  */
-function applyLinkStyles(linkElement) {
-  linkElement.style.cssText = `
+function applyBaseContainerStyles(element, extraStyles = "") {
+  element.style.cssText = `
     font-size: 12px;
     padding: 12px 0px;
     margin-left: 10px;
     border-top: 1px solid #202830;
     display: flex;
     align-items: center;
+    ${extraStyles}
   `;
 }
 
@@ -251,34 +264,15 @@ function setLinkContent(linkElement) {
  * @param {Element} watchDiv - The watch container element
  */
 function injectSkeletonLoader(watchDiv) {
-  const existingLink = watchDiv.querySelector(CONFIG.SELECTORS.BMS_LINK);
-  if (existingLink) {
-    existingLink.remove();
-  }
+  removeExistingBmsElement(watchDiv);
 
   const skeletonLink = document.createElement("div");
   skeletonLink.className = "bms-link bms-skeleton";
 
-  applySkeletonStyles(skeletonLink);
+  applyBaseContainerStyles(skeletonLink, "opacity: 0.6;");
   setSkeletonContent(skeletonLink);
 
   watchDiv.appendChild(skeletonLink);
-}
-
-/**
- * Applies skeleton loading styles
- * @param {Element} skeletonElement - The skeleton element
- */
-function applySkeletonStyles(skeletonElement) {
-  skeletonElement.style.cssText = `
-    font-size: 12px;
-    padding: 12px 0px;
-    margin-left: 10px;
-    border-top: 1px solid #202830;
-    display: flex;
-    align-items: center;
-    opacity: 0.6;
-  `;
 }
 
 /**
@@ -319,10 +313,7 @@ function setSkeletonContent(skeletonElement) {
  * @param {string} city - The current city
  */
 async function injectNoMoviesPlaceholder(watchDiv, city = null) {
-  const existingLink = watchDiv.querySelector(CONFIG.SELECTORS.BMS_LINK);
-  if (existingLink) {
-    existingLink.remove();
-  }
+  removeExistingBmsElement(watchDiv);
 
   if (!city) {
     city = await getSelectedCity();
@@ -331,16 +322,7 @@ async function injectNoMoviesPlaceholder(watchDiv, city = null) {
   const placeholderDiv = document.createElement("div");
   placeholderDiv.className = "bms-link bms-no-movies";
 
-  placeholderDiv.style.cssText = `
-    font-size: 12px;
-    padding: 12px 0px;
-    margin-left: 10px;
-    border-top: 1px solid #202830;
-    display: flex;
-    align-items: center;
-    color: #9ab;
-    opacity: 0.7;
-  `;
+  applyBaseContainerStyles(placeholderDiv, "color: #9ab; opacity: 0.7;");
 
   placeholderDiv.innerHTML = `
     <div style="
