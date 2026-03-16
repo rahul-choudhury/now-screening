@@ -188,6 +188,32 @@ func saveMoviesToDB(city string, movies []Movie) error {
 	return tx.Commit(context.Background())
 }
 
+func loadMovies(city string) ([]Movie, bool, error) {
+	movies, fromCache, err := getMoviesFromDB(city)
+	if err != nil {
+		return nil, false, fmt.Errorf("query cached movies: %w", err)
+	}
+
+	if fromCache {
+		return movies, true, nil
+	}
+
+	log.Printf("No cached data for %s, scraping...", city)
+
+	movies, err = scrapeMovies(city)
+	if err != nil {
+		return nil, false, fmt.Errorf("scrape movies: %w", err)
+	}
+
+	if err := saveMoviesToDB(city, movies); err != nil {
+		log.Printf("Failed to save movies for %s: %v", city, err)
+	} else {
+		log.Printf("Saved %d movies to database for city: %s", len(movies), city)
+	}
+
+	return movies, false, nil
+}
+
 func scrapeMovies(city string) ([]Movie, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"),
@@ -255,27 +281,16 @@ func getMovies(c *gin.Context) {
 	city := c.DefaultQuery("city", "cuttack")
 	query := c.Query("query")
 
-	movies, fromCache, err := getMoviesFromDB(city)
+	movies, fromCache, err := loadMovies(city)
 	if err != nil {
-		log.Printf("Error querying database: %v", err)
+		log.Printf("Error loading movies for %s: %v", city, err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Failed to load movies: %v", err),
+		})
+		return
 	}
 
-	if !fromCache {
-		log.Printf("No cached data for %s, scraping...", city)
-		movies, err = scrapeMovies(city)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": fmt.Sprintf("Failed to scrape movies: %v", err),
-			})
-			return
-		}
-
-		if err := saveMoviesToDB(city, movies); err != nil {
-			log.Printf("Failed to save to database: %v", err)
-		} else {
-			log.Printf("Saved %d movies to database for city: %s", len(movies), city)
-		}
-	} else {
+	if fromCache {
 		log.Printf("Returning %d cached movies for city: %s", len(movies), city)
 	}
 
@@ -316,9 +331,10 @@ func preloadMovies() {
 	log.Println("Starting initial movie scraping for cities:", cities)
 
 	for _, city := range cities {
-		movies, fromCache, err := getMoviesFromDB(city)
+		movies, fromCache, err := loadMovies(city)
 		if err != nil {
-			log.Printf("Error checking cache for %s: %v", city, err)
+			log.Printf("Failed to load movies for %s: %v", city, err)
+			continue
 		}
 
 		if fromCache {
@@ -326,19 +342,7 @@ func preloadMovies() {
 			continue
 		}
 
-		log.Printf("No valid cache for %s, scraping movies...", city)
-		movies, err = scrapeMovies(city)
-		if err != nil {
-			log.Printf("Failed to scrape movies for %s: %v", city, err)
-			continue
-		}
-
-		if err := saveMoviesToDB(city, movies); err != nil {
-			log.Printf("Failed to save movies for %s: %v", city, err)
-			continue
-		}
-
-		log.Printf("Successfully scraped and saved %d movies for %s", len(movies), city)
+		log.Printf("Successfully preloaded %d movies for %s", len(movies), city)
 	}
 
 	log.Println("Initial movie scraping completed")
